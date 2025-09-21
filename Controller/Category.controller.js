@@ -66,17 +66,17 @@ export const getCategory = async (req, res) => {
       .sort({ createdAt: 1 });
 
     // Fetch products for each category
-    const categoriesWithProducts = await Promise.all(
-      categories.map(async (cat) => {
-        const products = await Product.find({ categoryId: cat._id });
-        return { ...cat.toObject(), products };
-      })
-    );
+    // const categoriesWithProducts = await Promise.all(
+    //   categories.map(async (cat) => {
+    //     const products = await Product.find({ categoryId: cat._id }).limit(8);
+    //     return { ...cat.toObject(), products };
+    //   })
+    // );
 
     res.status(200).json({
       message: "Category fetched successfully",
       success: true,
-      category: categoriesWithProducts,
+      categories,
       totalPages: Math.ceil(total / limit),
       limit,
       total,
@@ -88,4 +88,20 @@ export const getCategory = async (req, res) => {
       error: error.message,
     });
   }
+};
+
+export const getCategoriesWithProducts = async (req, res) => {
+  const data = await Category.aggregate([
+    { $match: { isActive: true } },
+    {
+      $lookup: {
+        from: "products",
+        localField: "_id",
+        foreignField: "categoryId",
+        as: "products",
+      },
+    },
+    { $sort: { sortOrder: 1 } },
+  ]);
+  res.json({ success: true, data });
 };

@@ -46,6 +46,16 @@ export const createProduct = async (req, res) => {
     const uploadedImages = await uploadMultipleCloudinary(imagesLocalPaths);
     const thumbnail = await uploadCloudinary(thumbnailLocalPath);
 
+    let parsedSize = [];
+    let parsedColor = [];
+
+    if (req.body.size) {
+      parsedSize = JSON.parse(req.body.size); // convert string → array
+    }
+    if (req.body.color) {
+      parsedColor = JSON.parse(req.body.color);
+    }
+
     const product = await Product.create({
       userId, // 👈 stores creator's id
       productName,
@@ -61,6 +71,8 @@ export const createProduct = async (req, res) => {
       weight,
       isActive,
       avgRating,
+      size: parsedSize,
+      color: parsedColor,
       totalReviews,
     });
 
@@ -82,7 +94,7 @@ export const getProducts = async (req, res) => {
   const userId = req.user.id;
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit);
+    const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
     // search and filter
@@ -94,7 +106,7 @@ export const getProducts = async (req, res) => {
     const filter = {};
 
     if (search) {
-      filter.productName = { $regex: search, $option: "i" };
+      filter.productName = { $regex: search, $options: "i" };
     }
 
     if (categoryId) {
@@ -102,7 +114,7 @@ export const getProducts = async (req, res) => {
     }
 
     if (status) {
-      filter.status = status;
+      filter.productStatus = status;
     }
 
     const totalCount = await Product.countDocuments(filter);
