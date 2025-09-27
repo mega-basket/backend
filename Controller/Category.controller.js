@@ -19,14 +19,17 @@ export const createCategory = async (req, res) => {
       });
     }
 
-    const imageLocalPath = imageArray[0].path;
-    const categoryImage = await uploadCloudinary(imageLocalPath);
-
+    let categoryImageUrl = "";
+    if (req.files?.categoryImage?.[0]) {
+      const localPath = req.files.categoryImage[0].path;
+      const uploadResult = await uploadCloudinary(localPath);
+      categoryImageUrl = uploadResult?.secure_url || uploadResult?.url;
+    }
     const category = await Category.create({
       userId: req.user.userId,
       categoryName,
       description,
-      categoryImage: categoryImage.secure_url,
+      categoryImage: categoryImageUrl,
       isActive,
       sortOrder,
     });

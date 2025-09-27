@@ -35,6 +35,12 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    wishList: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Product",
+      },
+    ],
     verificationToken: {
       type: String,
     },

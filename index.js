@@ -6,6 +6,7 @@ import cors from "cors";
 import userRouter from "./routes/User.routes.js";
 import products from "./routes/Product.routes.js";
 import category from "./routes/Category.routes.js";
+import wishlist from "./routes/WishList.routes.js";
 
 const port = process.env.PORT || 8080;
 const app = express();
@@ -23,6 +24,7 @@ dbConnetion();
 app.use("/api/v1/users", userRouter);
 app.use("/api/v1/products", products);
 app.use("/api/v1/category", category);
+app.use("/api/v1/wishlist", wishlist);
 app.listen(port, () => {
   console.log("MongoDb Connection on 🚀 ", port);
 });
