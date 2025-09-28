@@ -4,10 +4,8 @@ import User from "../Model/Users.model.js";
 export const addToWishList = async (req, res) => {
   try {
     const userId = req.user.userId;
-    console.log("userId", userId);
 
     const { productId } = req.body;
-    console.log("productId", productId);
 
     // check if product is exists or not
     const product = await Product.findById(productId);
@@ -25,6 +23,11 @@ export const addToWishList = async (req, res) => {
 
     user.wishList.push(productId);
     await user.save();
+    res.status(200).json({
+      message: "Product added to wishlist",
+      success: true,
+      wishList: user.wishList,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -55,7 +58,7 @@ export const removeWishList = async (req, res) => {
       return res.status(400).json({ message: "Product not in wishlist" });
     }
 
-    user.wishList = user.wishList.filter((i) => i.toString() !== productId);
+    user.wishList = user.wishList.filter((id) => id.toString() !== productId);
 
     await user.save();
 

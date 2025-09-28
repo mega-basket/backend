@@ -54,9 +54,12 @@ const productSchema = new mongoose.Schema(
     discountPrice: { type: Number },
     stockQuantity: { type: Number, default: 0 },
     productStatus: { type: String, enum: productStatusEnum, default: "DRAFT" },
-    weight: { type: Number },
+    weight: { type: String },
     isActive: { type: Boolean, default: true },
     avgRating: { type: Number, default: 0 },
+    shippingCharge: { type: Number, default: 0 },
+    returnPolicy: { type: String, default: 0 },
+    deliveryDate: { type: Date },
     totalReviews: { type: Number, default: 0 },
   },
   { timestamps: true }
