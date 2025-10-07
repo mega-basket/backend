@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import slugify from "slugify";
 const productStatusEnum = [
   "DRAFT",
   "ACTIVE",
@@ -51,6 +52,8 @@ const productSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    isPopular: { type: Boolean, default: false },
+    slug: { type: String, unique: true },
     discountPrice: { type: Number },
     stockQuantity: { type: Number, default: 0 },
     productStatus: { type: String, enum: productStatusEnum, default: "DRAFT" },
@@ -65,4 +68,26 @@ const productSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+productSchema.pre("save", async function (next) {
+  if (this.isModified("productName") || this.isNew) {
+    let baseSlug = slugify(this.productName, { lower: true, strict: true });
+
+    let slug = baseSlug;
+    let count = 1;
+    const Product = mongoose.model("Product", productSchema);
+
+    while (await Product.exists({ slug })) {
+      slug = `${baseSlug}-${count++}`;
+    }
+    this.slug = slug;
+  }
+  next();
+});
+
+productSchema.pre("save", async function (next) {
+  if (this.avgRating >= 3 && this.totalReviews >= 20) {
+    this.isPopular = true;
+  }
+  next();
+});
 export const Product = mongoose.model("Product", productSchema);

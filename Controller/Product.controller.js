@@ -153,7 +153,7 @@ export const getProducts = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({
-      message: "Product not found",
+      message: "Product not found 1",
       error: error.message,
       success: false,
     });
@@ -161,12 +161,14 @@ export const getProducts = async (req, res) => {
 };
 
 export const getProductById = async (req, res) => {
-  const { id } = req.params;
+  const { slug } = req.params;
   try {
-    const product = await Product.findById(id);
+    const product = await Product.findOne({ slug })
+      .populate("userId", "name")
+      .populate("categoryId", "categoryName");
     if (!product) {
-      res.status(400).json({
-        message: "Product not found",
+      return res.status(400).json({
+        message: "Product not found 2",
       });
     }
 
@@ -177,9 +179,35 @@ export const getProductById = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({
-      message: "Product not found",
+      message: "Product not found 3",
       error: error.message,
       success: false,
+    });
+  }
+};
+
+export const getPopularProducts = async (req, res) => {
+  try {
+    const popularProduct = await Product.find({
+      productStatus: "ACTIVE",
+      isPopular: true,
+    })
+      .sort({ avgRating: -1, totalReviews: -1 })
+      .limit(10)
+      .populate("categoryId", "categoryName");
+
+    console.log("popularProduct", popularProduct);
+
+    res.status(200).json({
+      success: true,
+      message: "Popular products fetched successfully",
+      data: popularProduct,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch popular products",
+      error: error.message,
     });
   }
 };

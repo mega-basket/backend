@@ -2,6 +2,7 @@ import express from "express";
 import { upload } from "../Middleware/upload.middleware.js";
 import {
   createProduct,
+  getPopularProducts,
   getProductById,
   getProducts,
 } from "../Controller/Product.controller.js";
@@ -25,6 +26,7 @@ router.post(
   createProduct
 );
 router.get("/", userAuthentication, getProducts);
-router.get("/:id", userAuthentication, getProductById);
+router.get("/popular", userAuthentication, getPopularProducts);
+router.get("/:slug", userAuthentication, getProductById);
 
 export default router;
