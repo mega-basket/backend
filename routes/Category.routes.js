@@ -16,10 +16,9 @@ router.post(
   createCategory
 );
 
-router.get("/", userAuthentication, getCategory);
+router.get("/",  getCategory);
 router.get(
   "/categories-with-products",
-  userAuthentication,
   getCategoriesWithProducts
 );
 

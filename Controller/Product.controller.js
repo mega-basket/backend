@@ -12,196 +12,234 @@ export const createProduct = async (req, res) => {
       description,
       brand,
       price,
-      discountPrice,
-      stockQuantity,
-      productStatus,
-      weight,
-      isActive,
-      avgRating,
-      totalReviews,
-      deliveryDate,
-      returnPolicy,
-      shippingCharge,
+      discountPercentage = 0,
+      productStatus = "DRAFT",
     } = req.body;
 
     const userId = req.user.userId;
 
-    // ✅ Validate required fields
-    if (!productName || !price) {
+    const parsedPrice = Number(price);
+    const parsedDiscount = Number(discountPercentage);
+
+    if (!productName || !categoryId || parsedPrice <= 0) {
       return res.status(400).json({
-        message: "productName and price are required",
         success: false,
+        message: "Invalid product data",
       });
     }
 
-    // ✅ Validate images
-    const imagesFiles = req.files?.images;
-    const thumbnailFile = req.files?.thumbnail?.[0];
-
-    if (!imagesFiles || imagesFiles.length === 0 || !thumbnailFile) {
+    if (parsedDiscount < 0 || parsedDiscount > 90) {
       return res.status(400).json({
-        message: "At least one image and a thumbnail are required",
         success: false,
+        message: "Discount must be between 0 and 90",
       });
     }
 
-    // ✅ Upload images to Cloudinary
-    const imagesLocalPaths = imagesFiles.map((f) => f.path);
-    const thumbnailLocalPath = thumbnailFile.path;
+    const variantFiles = {};
 
-    const uploadedImages = await uploadMultipleCloudinary(imagesLocalPaths);
-    const thumbnail = await uploadCloudinary(thumbnailLocalPath);
+    for (const file of req.files) {
+      const match = file.fieldname.match(
+        /variants\[(\d+)\]\[(images|thumbnail)\]/
+      );
 
-    // ✅ Parse size and color arrays
-    let parsedSize = [];
-    let parsedColor = [];
-    if (req.body.size) parsedSize = JSON.parse(req.body.size);
-    if (req.body.color) parsedColor = JSON.parse(req.body.color);
+      if (!match) continue;
 
-    // ✅ Format deliveryDate to YYYY-MM-DD if provided
-    let formattedDeliveryDate = null;
-    if (deliveryDate) {
-      const dateObj = new Date(deliveryDate);
-      const yyyy = dateObj.getFullYear();
-      const mm = String(dateObj.getMonth() + 1).padStart(2, "0"); // Month is 0-indexed
-      const dd = String(dateObj.getDate()).padStart(2, "0");
-      formattedDeliveryDate = `${yyyy}-${mm}-${dd}`;
+      const index = match[1];
+      const type = match[2];
+
+      if (!variantFiles[index]) {
+        variantFiles[index] = { images: [], thumbnail: null };
+      }
+
+      if (type === "images") {
+        variantFiles[index].images.push(file);
+      }
+
+      if (type === "thumbnail") {
+        variantFiles[index].thumbnail = file;
+      }
     }
 
-    // ✅ Create product
+    const variants = [];
+
+    for (const index in variantFiles) {
+      const bodyVariant = req.body.variants?.[index];
+
+      if (!bodyVariant?.color?.name) {
+        return res.status(400).json({
+          success: false,
+          message: `Color missing for variant ${index}`,
+        });
+      }
+
+      const uploadedImages = await uploadMultipleCloudinary(
+        variantFiles[index].images.map((f) => f.path)
+      );
+
+      const uploadedThumbnail = await uploadCloudinary(
+        variantFiles[index].thumbnail.path
+      );
+
+      variants.push({
+        color: {
+          name: bodyVariant.color.name,
+        },
+        stockQuantity: Number(bodyVariant.stockQuantity || 0),
+        images: uploadedImages.map((i) => i.secure_url),
+        thumbnail: uploadedThumbnail.secure_url,
+      });
+    }
+
+    if (!variants.length) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one variant is required",
+      });
+    }
+
+    const totalStock = variants.reduce(
+      (sum, v) => sum + v.stockQuantity,
+      0
+    );
+
+    if (productStatus === "PUBLISHED" && totalStock <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot publish product with zero variant stock",
+      });
+    }
+
     const product = await Product.create({
       userId,
       productName,
       categoryId,
       description,
       brand,
-      price,
-      discountPrice,
-      stockQuantity,
+      price: parsedPrice,
+      discountPercentage: parsedDiscount,
       productStatus,
-      weight,
-      isActive,
-      avgRating,
-      totalReviews,
-      images: uploadedImages.map((img) => img.secure_url),
-      thumbnail: thumbnail.secure_url,
-      size: parsedSize,
-      color: parsedColor,
-      deliveryDate: formattedDeliveryDate,
-      returnPolicy,
-      shippingCharge,
+      variants,
     });
 
-    res.status(201).json({
-      message: "Product created successfully",
+    return res.status(201).json({
       success: true,
-      product,
+      message: "Product created successfully",
+      productId: product._id,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      message: "Product not created",
-      error: error.message,
+    console.error("Create product error:", error);
+    return res.status(500).json({
       success: false,
+      message: "Product creation failed",
     });
   }
 };
 
+
 export const getProducts = async (req, res) => {
-  const userId = req.user.id;
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Number(req.query.limit) || 10, 50);
     const skip = (page - 1) * limit;
 
-    // search and filter
-
-    const search = req.query.search || "";
+    const search = req.query.search?.trim();
     const categoryId = req.query.categoryId;
     const status = req.query.status;
 
     const filter = {};
 
     if (search) {
-      filter.productName = { $regex: search, $options: "i" };
+      filter.productName = { $regex: `^${search}`, $options: "i" };
     }
 
     if (categoryId) {
       filter.categoryId = categoryId;
     }
 
-    if (status) {
+    // 🔐 Only admin can filter by status
+    if (req.user?.role === "admin" && status) {
       filter.productStatus = status;
+    } else {
+      filter.productStatus = "PUBLISHED";
     }
 
-    const totalCount = await Product.countDocuments(filter);
+     const [products, totalCount] = await Promise.all([
+      Product.find(filter)
+        .populate("userId", "name")
+        .populate("categoryId", "categoryName")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
 
-    const product = await Product.find(filter)
-      .populate("userId", "name")
-      .populate("categoryId", "categoryName")
-      .skip(skip)
-      .limit(limit)
-      .sort({ createdAt: -1 });
+      Product.countDocuments(filter),
+    ]);
 
     res.status(200).json({
-      message: "Product fetched successfully",
       success: true,
-      product,
+      message: "Products fetched successfully",
+      products,
+      totalProducts: totalCount,
       totalPages: Math.ceil(totalCount / limit),
-      limit,
-      totalProduct: totalCount,
+      currentPage: page,
     });
   } catch (error) {
     res.status(500).json({
-      message: "Product not found 1",
-      error: error.message,
       success: false,
+      message: "Failed to fetch products",
+      error: error.message,
     });
   }
 };
 
 export const getProductById = async (req, res) => {
-  const { slug } = req.params;
   try {
-    const product = await Product.findOne({ slug })
+    const { slug } = req.params;
+
+    const product = await Product.findOne({
+      slug,
+      productStatus: "PUBLISHED",
+    })
       .populate("userId", "name")
-      .populate("categoryId", "categoryName");
+      .populate("categoryId", "categoryName")
+      .lean()
+
     if (!product) {
-      return res.status(400).json({
-        message: "Product not found 2",
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
       });
     }
 
     res.status(200).json({
-      message: "Product fetch successfully",
       success: true,
+      message: "Product fetched successfully",
       product,
     });
   } catch (error) {
     res.status(500).json({
-      message: "Product not found 3",
-      error: error.message,
       success: false,
+      message: "Failed to fetch product",
+      error: error.message,
     });
   }
 };
 
 export const getPopularProducts = async (req, res) => {
   try {
-    const popularProduct = await Product.find({
-      productStatus: "ACTIVE",
+    const products = await Product.find({
+      productStatus: "PUBLISHED",
       isPopular: true,
     })
       .sort({ avgRating: -1, totalReviews: -1 })
       .limit(10)
-      .populate("categoryId", "categoryName");
-
-    console.log("popularProduct", popularProduct);
+      .populate("categoryId", "categoryName")
+      .lean()
 
     res.status(200).json({
       success: true,
       message: "Popular products fetched successfully",
-      data: popularProduct,
+      products,
     });
   } catch (error) {
     res.status(500).json({

@@ -13,20 +13,11 @@ const router = express.Router();
 router.post(
   "/create",
   userAuthentication,
-  upload.fields([
-    {
-      name: "images",
-      maxCount: 10,
-    },
-    {
-      name: "thumbnail",
-      maxCount: 1,
-    },
-  ]),
+  upload.any(),
   createProduct
 );
-router.get("/", userAuthentication, getProducts);
-router.get("/popular", userAuthentication, getPopularProducts);
-router.get("/:slug", userAuthentication, getProductById);
+router.get("/", getProducts);
+router.get("/popular", getPopularProducts);
+router.get("/:slug", getProductById);
 
 export default router;

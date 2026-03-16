@@ -4,9 +4,7 @@ export const userAuthentication = (req, res, next) => {
   const authHeader = req.headers["authorization"];
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({
-      message: "No token, authorization denied",
-    });
+    return res.status(401).json({ message: "No token provided" });
   }
 
   const token = authHeader.split(" ")[1];
@@ -16,6 +14,15 @@ export const userAuthentication = (req, res, next) => {
     req.user = decoded;
     next();
   } catch (error) {
-    return res.status(401).json({ message: "Token is not valid" });
+    // 🔥 ALLOW logout even if token expired
+    if (req.originalUrl.includes("/logout")) {
+      next();
+    } else {
+      return res.status(401).json({
+        message: "Token is not valid",
+        error: error.message,
+      });
+    }
   }
 };
+

@@ -13,10 +13,14 @@ const userSchema = new mongoose.Schema(
     email: {
       type: String,
       required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
     },
     password: {
       type: String,
       required: true,
+      select: false
     },
     role: {
       type: String,
@@ -24,13 +28,13 @@ const userSchema = new mongoose.Schema(
       default: "user",
     },
     phone: {
-      type: Number,
+      type: String,
       required: true,
     },
-    address: {
+    addresses: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: "Address",
-    },
+    }],
     isActive: {
       type: Boolean,
       default: true,
@@ -41,15 +45,14 @@ const userSchema = new mongoose.Schema(
         ref: "Product",
       },
     ],
-    cart: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Product",
-      },
-    ],
     verificationToken: {
       type: String,
     },
+    refreshToken: {
+      type: String,
+      select: false,
+    }
+    
   },
   { timestamps: true }
 );
