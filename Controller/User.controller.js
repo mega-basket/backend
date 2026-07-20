@@ -151,7 +151,7 @@ const login = async (req, res) => {
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",  // ✅ Only secure in production
-      sameSite: "strict",
+      sameSite: "lax", // cross-port dev (5173 -> 8080) drops "strict" cookies on XHR
       maxAge: 7 * 24 * 60 * 60 * 1000  // 7 days
     });
 
@@ -280,7 +280,11 @@ const logout = async (req, res) => {
       tokenBlacklist.add(token);
     }
 
-    res.clearCookie("refreshToken");
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+    });
 
     return res.status(200).json({
       success: true,

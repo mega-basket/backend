@@ -3,6 +3,7 @@ dotenv.config(); // ✅ MUST be first
 
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import { dbConnetion } from "./db/dbConnection.js";
 
 import userRouter from "./routes/User.routes.js";
@@ -28,6 +29,7 @@ app.use(
   })
 );
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
 app.get("/", (req, res) => {
   res.send("Hello");

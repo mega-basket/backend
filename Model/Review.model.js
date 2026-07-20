@@ -58,11 +58,23 @@ reviewSchema.post('findOneAndDelete', async function(doc){
         return
     }
 
+    const Review = mongoose.model("Review")
     const Product = mongoose.model("Product")
 
-    await Product.findOneAndUpdate(doc.productId, {
-        avgRating: 0,
-        totalReviews: 0
+    const stats = await Review.aggregate([
+        {$match: {productId: doc.productId}},
+        {
+            $group: {
+                _id: "$productId",
+                avgRating: {$avg: "$rating"},
+                totalReviews: {$sum: 1}
+            }
+        }
+    ])
+
+    await Product.findByIdAndUpdate(doc.productId, {
+        avgRating: stats.length ? Number(stats[0].avgRating.toFixed(1)) : 0,
+        totalReviews: stats.length ? stats[0].totalReviews : 0
     })
 
 })

@@ -24,11 +24,17 @@ export const createReview = async (req, res) => {
       review,
     });
   } catch (error) {
+    console.log(error);
     if (error.code === 11000) {
       return res.status(400).json({
         message: "You have already reviewed this product",
       });
     }
+    res.status(500).json({
+      success: false,
+      message: "Failed to create review",
+      error: error.message,
+    });
   }
 };
 
