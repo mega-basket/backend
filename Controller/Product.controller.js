@@ -135,6 +135,189 @@ export const createProduct = async (req, res) => {
   }
 };
 
+export const updateProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const product = await Product.findById(id);
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    if (product.userId.toString() !== req.user.userId) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to update this product",
+      });
+    }
+
+    const {
+      productName,
+      categoryId,
+      description,
+      brand,
+      price,
+      discountPercentage,
+      productStatus,
+      removeVariantIds,
+    } = req.body;
+
+    if (productName !== undefined) product.productName = productName;
+    if (categoryId !== undefined) product.categoryId = categoryId;
+    if (description !== undefined) product.description = description;
+    if (brand !== undefined) product.brand = brand;
+
+    if (price !== undefined) {
+      const parsedPrice = Number(price);
+      if (!parsedPrice || parsedPrice <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid price",
+        });
+      }
+      product.price = parsedPrice;
+    }
+
+    if (discountPercentage !== undefined) {
+      const parsedDiscount = Number(discountPercentage);
+      if (parsedDiscount < 0 || parsedDiscount > 90) {
+        return res.status(400).json({
+          success: false,
+          message: "Discount must be between 0 and 90",
+        });
+      }
+      product.discountPercentage = parsedDiscount;
+    }
+
+    if (productStatus !== undefined) product.productStatus = productStatus;
+
+    // Remove variants (comma separated ids or array)
+    if (removeVariantIds) {
+      const ids = Array.isArray(removeVariantIds)
+        ? removeVariantIds
+        : String(removeVariantIds).split(",");
+      for (const variantId of ids) {
+        product.variants.pull(variantId.trim());
+      }
+    }
+
+    // Group uploaded files by variant index (same format as create)
+    const variantFiles = {};
+    for (const file of req.files || []) {
+      const match = file.fieldname.match(
+        /variants\[(\d+)\]\[(images|thumbnail)\]/
+      );
+      if (!match) continue;
+
+      const index = match[1];
+      const type = match[2];
+
+      if (!variantFiles[index]) {
+        variantFiles[index] = { images: [], thumbnail: null };
+      }
+      if (type === "images") variantFiles[index].images.push(file);
+      if (type === "thumbnail") variantFiles[index].thumbnail = file;
+    }
+
+    // Update existing variants (by _id) or add new ones (no _id)
+    if (req.body.variants) {
+      for (const index in req.body.variants) {
+        const bodyVariant = req.body.variants[index];
+        const files = variantFiles[index] || { images: [], thumbnail: null };
+
+        if (bodyVariant._id) {
+          const variant = product.variants.id(bodyVariant._id);
+          if (!variant) {
+            return res.status(400).json({
+              success: false,
+              message: `Variant ${bodyVariant._id} not found`,
+            });
+          }
+
+          if (bodyVariant.color?.name) variant.color.name = bodyVariant.color.name;
+          if (bodyVariant.stockQuantity !== undefined) {
+            variant.stockQuantity = Number(bodyVariant.stockQuantity);
+          }
+          if (files.thumbnail) {
+            const uploaded = await uploadCloudinary(files.thumbnail.path);
+            variant.thumbnail = uploaded.secure_url;
+          }
+          if (files.images.length) {
+            const uploaded = await uploadMultipleCloudinary(
+              files.images.map((f) => f.path)
+            );
+            variant.images = uploaded.map((i) => i.secure_url);
+          }
+        } else {
+          // New variant: needs color name + thumbnail, like create
+          if (!bodyVariant.color?.name) {
+            return res.status(400).json({
+              success: false,
+              message: `Color missing for new variant ${index}`,
+            });
+          }
+          if (!files.thumbnail) {
+            return res.status(400).json({
+              success: false,
+              message: `Thumbnail missing for new variant ${index}`,
+            });
+          }
+
+          const uploadedImages = files.images.length
+            ? await uploadMultipleCloudinary(files.images.map((f) => f.path))
+            : [];
+          const uploadedThumbnail = await uploadCloudinary(
+            files.thumbnail.path
+          );
+
+          product.variants.push({
+            color: { name: bodyVariant.color.name },
+            stockQuantity: Number(bodyVariant.stockQuantity || 0),
+            images: uploadedImages.map((i) => i.secure_url),
+            thumbnail: uploadedThumbnail.secure_url,
+          });
+        }
+      }
+    }
+
+    if (!product.variants.length) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one variant is required",
+      });
+    }
+
+    const totalStock = product.variants.reduce(
+      (sum, v) => sum + v.stockQuantity,
+      0
+    );
+
+    if (product.productStatus === "PUBLISHED" && totalStock <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot publish product with zero variant stock",
+      });
+    }
+
+    await product.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Product updated successfully",
+      product,
+    });
+  } catch (error) {
+    console.error("Update product error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Product update failed",
+    });
+  }
+};
+
 
 export const getProducts = async (req, res) => {
   try {
