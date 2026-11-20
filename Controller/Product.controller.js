@@ -3,6 +3,7 @@ import {
   uploadCloudinary,
   uploadMultipleCloudinary,
 } from "../utils/uploadCloudinary.js";
+import { toSearchPattern } from "../utils/escapeRegex.js";
 
 export const createProduct = async (req, res) => {
   try {
@@ -147,7 +148,7 @@ export const updateProduct = async (req, res) => {
       });
     }
 
-    if (product.userId.toString() !== req.user.userId) {
+    if (req.user.role !== "admin" && product.userId.toString() !== req.user.userId) {
       return res.status(403).json({
         success: false,
         message: "You are not allowed to update this product",
@@ -325,7 +326,7 @@ export const getProducts = async (req, res) => {
     const limit = Math.min(Number(req.query.limit) || 10, 50);
     const skip = (page - 1) * limit;
 
-    const search = req.query.search?.trim();
+    const search = toSearchPattern(req.query.search);
     const categoryId = req.query.categoryId;
     const status = req.query.status;
 
@@ -339,9 +340,10 @@ export const getProducts = async (req, res) => {
       filter.categoryId = categoryId;
     }
 
-    // 🔐 Only admin can filter by status
-    if (req.user?.role === "admin" && status) {
-      filter.productStatus = status;
+    // 🔐 Admins can see every status (optionally filtered); everyone else
+    // only ever sees published products.
+    if (req.user?.role === "admin") {
+      if (status) filter.productStatus = status;
     } else {
       filter.productStatus = "PUBLISHED";
     }
@@ -375,6 +377,30 @@ export const getProducts = async (req, res) => {
   }
 };
 
+// Admin-only lookup by Mongo _id, regardless of productStatus — used by the
+// admin panel's edit form (the public getProductById below only ever
+// returns PUBLISHED products, so drafts aren't reachable through it).
+export const getProductForAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const product = await Product.findById(id)
+      .populate("categoryId", "categoryName")
+      .lean();
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    res.status(200).json({ success: true, product });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch product",
+      error: error.message,
+    });
+  }
+};
+
 export const getProductById = async (req, res) => {
   try {
     const { slug } = req.params;
@@ -403,6 +429,33 @@ export const getProductById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to fetch product",
+      error: error.message,
+    });
+  }
+};
+
+export const deleteProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const product = await Product.findById(id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    if (req.user.role !== "admin" && product.userId.toString() !== req.user.userId) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to delete this product",
+      });
+    }
+
+    await product.deleteOne();
+
+    res.status(200).json({ success: true, message: "Product deleted successfully" });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete product",
       error: error.message,
     });
   }

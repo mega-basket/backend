@@ -8,6 +8,10 @@ import { sendOrderMail } from "../utils/sendOrderMail.js";
 import { Product } from "../Model/ProductSchema.model.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const RETURN_WINDOW_DAYS = 7;
+const cleanReason = (value) =>
+  typeof value === "string" ? value.trim().slice(0, 500) : "";
+
 
 // ─── Shared helper ────────────────────────────────────────────────────────────
 // Validates cart items and returns { orderItems, subTotal }.
@@ -53,8 +57,13 @@ const buildOrderItems = async (cartItems) => {
 
 export const getOrders = async (req, res) => {
   try {
-    const userId = req.user.userId;
-    const orders = await Order.find({ userId }).sort({ createdAt: -1 });
+    const isAdmin = req.user.role === "admin";
+    const filter = isAdmin ? {} : { userId: req.user.userId };
+
+    const query = Order.find(filter).sort({ createdAt: -1 });
+    if (isAdmin) query.populate("userId", "name email");
+
+    const orders = await query;
     res.status(200).json({ success: true, orders });
   } catch (error) {
     res.status(500).json({ success: false, message: "Failed to fetch orders" });
@@ -63,9 +72,11 @@ export const getOrders = async (req, res) => {
 
 export const getOrderById = async (req, res) => {
   try {
-    const userId = req.user.userId;
     const { orderId } = req.params;
-    const order = await Order.findOne({ _id: orderId, userId });
+    const filter = req.user.role === "admin"
+      ? { _id: orderId }
+      : { _id: orderId, userId: req.user.userId };
+    const order = await Order.findOne(filter).populate("userId", "name email");
     if (!order) {
       return res.status(404).json({ success: false, message: "Order not found" });
     }
@@ -476,11 +487,15 @@ export const createOrder = async (req, res) => {
 
 export const changeOrderStatus = async (req, res) => {
   try {
-    const userId = req.user.userId;
     const {orderId} = req.params;
     const {status} = req.body;
 
-    const order = await Order.findOne({_id: orderId, userId})
+    // Admins can update any order; customers only their own (e.g. to cancel).
+    const filter = req.user.role === "admin"
+      ? { _id: orderId }
+      : { _id: orderId, userId: req.user.userId };
+
+    const order = await Order.findOne(filter)
     if(!order) {
       return res.status(404).json({success: false, message: "Order not found"})
     }
@@ -496,3 +511,265 @@ export const changeOrderStatus = async (req, res) => {
     
   }
 }
+
+export const requestOrderCancellation = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const reason = cleanReason(req.body.reason);
+
+    const order = await Order.findOne({
+      _id: orderId,
+      userId: req.user.userId,
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+    }
+
+    // Cancel only before shipment.
+    if (!["PLACED", "CONFIRMED"].includes(order.orderStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: "This order can no longer be cancelled",
+      });
+    }
+
+    if (order.cancellationRequest?.status === "REQUESTED") {
+      return res.status(409).json({
+        success: false,
+        message: "A cancellation request is already pending",
+      });
+    }
+
+    order.cancellationRequest = {
+      status: "REQUESTED",
+      reason,
+      requestedAt: new Date(),
+    };
+
+    await order.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Cancellation request submitted",
+      order,
+    });
+  } catch (error) {
+    console.error("Cancellation request error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Could not submit cancellation request",
+    });
+  }
+};
+
+
+export const requestOrderReturn = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const reason = cleanReason(req.body.reason);
+
+    const order = await Order.findOne({
+      _id: orderId,
+      userId: req.user.userId,
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+    }
+
+    if (order.orderStatus !== "DELIVERED") {
+      return res.status(400).json({
+        success: false,
+        message: "Only delivered orders can be returned",
+      });
+    }
+
+    const deliveredEvent = order.statusHistory?.find(
+      (event) => event.status === "DELIVERED"
+    );
+
+    // Do not guess the delivery date for older orders without status history.
+    if (!deliveredEvent?.changedAt) {
+      return res.status(400).json({
+        success: false,
+        message: "The delivery date is unavailable for this order",
+      });
+    }
+
+    const deliveredAt = new Date(deliveredEvent.changedAt);
+    const returnDeadline =
+      deliveredAt.getTime() + RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+    if (Date.now() > returnDeadline) {
+      return res.status(400).json({
+        success: false,
+        message: "The return window for this order has closed",
+      });
+    }
+
+    if (order.returnRequest?.status === "REQUESTED") {
+      return res.status(409).json({
+        success: false,
+        message: "A return request is already pending",
+      });
+    }
+
+    order.returnRequest = {
+      status: "REQUESTED",
+      reason,
+      requestedAt: new Date(),
+    };
+
+    await order.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Return request submitted",
+      order,
+    });
+  } catch (error) {
+    console.error("Return request error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Could not submit return request",
+    });
+  }
+};
+
+export const getOrderRequests = async (req, res) => {
+  try {
+    const orders = await Order.find({
+      $or: [
+        { "cancellationRequest.status": "REQUESTED" },
+        { "returnRequest.status": "REQUESTED" },
+      ],
+    })
+      .populate("userId", "name email")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const requests = orders.flatMap((order) => {
+      const pending = [];
+
+      if (order.cancellationRequest?.status === "REQUESTED") {
+        pending.push({
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          customer: order.userId,
+          orderStatus: order.orderStatus,
+          totalAmount: order.totalAmount,
+          type: "cancellation",
+          ...order.cancellationRequest,
+        });
+      }
+
+      if (order.returnRequest?.status === "REQUESTED") {
+        pending.push({
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          customer: order.userId,
+          orderStatus: order.orderStatus,
+          totalAmount: order.totalAmount,
+          type: "return",
+          ...order.returnRequest,
+        });
+      }
+
+      return pending;
+    });
+
+    res.json({ success: true, requests });
+  } catch (error) {
+    console.error("Fetch order requests error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch order requests",
+    });
+  }
+};
+
+export const reviewOrderRequest = async (req, res) => {
+  try {
+    const { orderId, type } = req.params;
+    const { decision } = req.body;
+
+    if (!["cancellation", "return"].includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid request type",
+      });
+    }
+
+    if (!["APPROVED", "REJECTED"].includes(decision)) {
+      return res.status(400).json({
+        success: false,
+        message: "Decision must be APPROVED or REJECTED",
+      });
+    }
+
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+    }
+
+    const requestField =
+      type === "cancellation" ? "cancellationRequest" : "returnRequest";
+
+    const request = order[requestField];
+
+    if (request?.status !== "REQUESTED") {
+      return res.status(409).json({
+        success: false,
+        message: "This request is no longer pending",
+      });
+    }
+
+    if (
+      decision === "APPROVED" &&
+      type === "cancellation" &&
+      !["PLACED", "CONFIRMED"].includes(order.orderStatus)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "This order can no longer be cancelled",
+      });
+    }
+
+    if (decision === "APPROVED" && type === "return" && order.orderStatus !== "DELIVERED") {
+      return res.status(400).json({
+        success: false,
+        message: "Only delivered orders can be approved for return",
+      });
+    }
+
+    request.status = decision;
+    request.resolvedAt = new Date();
+
+    await order.save();
+
+    res.json({
+      success: true,
+      message: `Request ${decision.toLowerCase()}`,
+      order,
+    });
+  } catch (error) {
+    console.error("Review order request error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to review order request",
+    });
+  }
+};

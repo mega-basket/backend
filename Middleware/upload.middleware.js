@@ -1,9 +1,12 @@
 import path from "path";
+import os from "os";
 import multer from "multer";
 
+// os.tmpdir() resolves to /tmp on AWS Lambda (the only writable path there)
+// and to the system temp dir locally, so this works unchanged in both.
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, "./public/temp");
+    cb(null, os.tmpdir());
   },
   filename: (req, file, cb) => {
     const uniqueSuffix =

@@ -3,6 +3,7 @@ import crypto from "crypto";
 import bcrypt from "bcrypt";
 import jwt, { decode } from "jsonwebtoken";
 import { Address } from "../Model/AddressSchema.model.js";
+import { toSearchPattern } from "../utils/escapeRegex.js";
 const tokenBlacklist = new Set();
 const register = async (req, res) => {
   const {
@@ -11,7 +12,6 @@ const register = async (req, res) => {
     email,
     password,
     city,
-    addresses,
     phone,
     state,
     street,
@@ -20,7 +20,7 @@ const register = async (req, res) => {
   } = req.body;
 
   if (!name || !email || !password || !phone) {
-    res.status(400).json({
+    return res.status(400).json({
       message: "All fields are required!!",
     });
   }
@@ -39,21 +39,26 @@ const register = async (req, res) => {
       userName,
       email,
       password,
-      addresses,
       phone,
     });
     user.verificationToken = token;
 
-    const newAddress = await Address.create({
-      userId: user._id,
-      street,
-      city,
-      state,
-      country,
-      postalCode,
-    });
-
-    user.addresses = newAddress;
+    // Address at signup is optional — only create one if street/city/state/
+    // postalCode were actually provided (addresses can also be added later
+    // from checkout).
+    if (street && city && state && postalCode) {
+      const newAddress = await Address.create({
+        userId: user._id,
+        fullName: name,
+        phone,
+        street,
+        city,
+        state,
+        country,
+        postalCode,
+      });
+      user.addresses.push(newAddress._id);
+    }
 
     await user.save();
     res.status(200).json({
@@ -62,14 +67,17 @@ const register = async (req, res) => {
       user,
     });
   } catch (error) {
+    console.error("Register error:", error);
     res.status(500).json({
       message: "Failed to create user",
+      error: error.message,
     });
   }
 };
 
 const getUser = async (req, res) => {
-  const { search, limit, page } = req.query;
+  const { limit, page } = req.query;
+  const search = toSearchPattern(req.query.search);
   const pageNum = Number(page) || 1 
   const pageSize = Number (limit) || 10
   const skip = (pageNum -1 ) * pageSize

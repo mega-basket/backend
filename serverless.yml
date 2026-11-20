@@ -1,0 +1,133 @@
+service: ecom-backend
+
+frameworkVersion: "3"
+useDotenv: true
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: ${env:AWS_REGION, 'us-east-1'}
+  stage: ${opt:stage, 'dev'}
+  memorySize: 256
+  timeout: 15
+  environment:
+    MONGODB_URI: ${env:MONGODB_URI}
+    JWT_SECRET: ${env:JWT_SECRET}
+    JWT_REFRESH_SECRET: ${env:JWT_REFRESH_SECRET}
+    CORS_ORIGIN: ${env:CORS_ORIGIN, 'http://localhost:5173'}
+    CLOUDINARY_CLOUD_NAME: ${env:CLOUDINARY_CLOUD_NAME}
+    CLOUDINARY_API_KEY: ${env:CLOUDINARY_API_KEY}
+    CLOUDINARY_API_SECRET: ${env:CLOUDINARY_API_SECRET}
+    STRIPE_SECRET_KEY: ${env:STRIPE_SECRET_KEY}
+    STRIPE_WEBHOOK_SECRET: ${env:STRIPE_WEBHOOK_SECRET}
+    SMTP_HOST: ${env:SMTP_HOST, ''}
+    SMTP_PORT: ${env:SMTP_PORT, ''}
+    SMTP_USER: ${env:SMTP_USER, ''}
+    SMTP_PASS: ${env:SMTP_PASS, ''}
+  httpApi:
+    cors:
+      allowedOrigins:
+        - ${env:CORS_ORIGIN, 'http://localhost:5173'}
+      allowCredentials: true
+      allowedHeaders:
+        - Content-Type
+        - Authorization
+        - stripe-signature
+      allowedMethods:
+        - GET
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+
+plugins:
+  - serverless-offline
+
+package:
+  individually: false
+  patterns:
+    - "!public/**"
+    - "!.git/**"
+    - "!tests/**"
+
+functions:
+  users:
+    handler: lambda/user.handler.handler
+    events:
+      - httpApi:
+          method: ANY
+          path: /api/v1/users
+      - httpApi:
+          method: ANY
+          path: /api/v1/users/{proxy+}
+
+  products:
+    handler: lambda/product.handler.handler
+    events:
+      - httpApi:
+          method: ANY
+          path: /api/v1/products
+      - httpApi:
+          method: ANY
+          path: /api/v1/products/{proxy+}
+
+  category:
+    handler: lambda/category.handler.handler
+    events:
+      - httpApi:
+          method: ANY
+          path: /api/v1/category
+      - httpApi:
+          method: ANY
+          path: /api/v1/category/{proxy+}
+
+  wishlist:
+    handler: lambda/wishlist.handler.handler
+    events:
+      - httpApi:
+          method: ANY
+          path: /api/v1/wishlist
+      - httpApi:
+          method: ANY
+          path: /api/v1/wishlist/{proxy+}
+
+  cart:
+    handler: lambda/cart.handler.handler
+    events:
+      - httpApi:
+          method: ANY
+          path: /api/v1/cart
+      - httpApi:
+          method: ANY
+          path: /api/v1/cart/{proxy+}
+
+  address:
+    handler: lambda/address.handler.handler
+    events:
+      - httpApi:
+          method: ANY
+          path: /api/v1/address
+      - httpApi:
+          method: ANY
+          path: /api/v1/address/{proxy+}
+
+  order:
+    handler: lambda/order.handler.handler
+    events:
+      - httpApi:
+          method: ANY
+          path: /api/v1/order
+      - httpApi:
+          method: ANY
+          path: /api/v1/order/{proxy+}
+
+  review:
+    handler: lambda/review.handler.handler
+    events:
+      - httpApi:
+          method: ANY
+          path: /api/v1/review
+      - httpApi:
+          method: ANY
+          path: /api/v1/review/{proxy+}

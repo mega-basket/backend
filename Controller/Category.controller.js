@@ -1,6 +1,7 @@
 import { Category } from "../Model/Category.model.js";
 import { Product } from "../Model/ProductSchema.model.js";
 import uploadCloudinary from "../utils/uploadCloudinary.js";
+import { toSearchPattern } from "../utils/escapeRegex.js";
 
 export const createCategory = async (req, res) => {
   const { categoryName, description, isActive, sortOrder } = req.body;
@@ -54,7 +55,7 @@ export const getCategory = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const search = req.query.search || "";
+    const search = toSearchPattern(req.query.search);
     const filter = {};
     if (search) {
       filter.categoryName = { $regex: search, $options: "i" }; // $options plural
@@ -88,6 +89,69 @@ export const getCategory = async (req, res) => {
     res.status(500).json({
       message: "Error fetching category",
       success: false,
+      error: error.message,
+    });
+  }
+};
+
+export const updateCategory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const category = await Category.findById(id);
+    if (!category) {
+      return res.status(404).json({ success: false, message: "Category not found" });
+    }
+
+    const { categoryName, description, isActive, sortOrder } = req.body;
+
+    if (categoryName !== undefined) category.categoryName = categoryName;
+    if (description !== undefined) category.description = description;
+    if (isActive !== undefined) category.isActive = isActive === "true" || isActive === true;
+    if (sortOrder !== undefined) category.sortOrder = Number(sortOrder);
+
+    if (req.files?.categoryImage?.[0]) {
+      const uploadResult = await uploadCloudinary(req.files.categoryImage[0].path);
+      category.categoryImage = uploadResult?.secure_url || uploadResult?.url;
+    }
+
+    await category.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Category updated successfully",
+      category,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error updating category",
+      error: error.message,
+    });
+  }
+};
+
+export const deleteCategory = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const inUse = await Product.countDocuments({ categoryId: id });
+    if (inUse > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete — ${inUse} product(s) still use this category`,
+      });
+    }
+
+    const category = await Category.findByIdAndDelete(id);
+    if (!category) {
+      return res.status(404).json({ success: false, message: "Category not found" });
+    }
+
+    res.status(200).json({ success: true, message: "Category deleted successfully" });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error deleting category",
       error: error.message,
     });
   }

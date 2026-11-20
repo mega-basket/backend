@@ -8,6 +8,10 @@ const orderItemSchema = new mongoose.Schema(
       required: true,
     },
 
+    variantId: {
+      type: mongoose.Schema.Types.ObjectId,
+    },
+
     productName: {
       type: String,
       required: true,
@@ -72,6 +76,26 @@ const orderSchema = new mongoose.Schema(
       country: String,
       postalCode: String,
     },
+    statusHistory: [
+      {
+        status: {
+          type: String,
+          enum: [
+            "PLACED",
+            "CONFIRMED",
+            "SHIPPED",
+            "DELIVERED",
+            "CANCELLED",
+            "RETURNED",
+          ],
+          required: true,
+        },
+        changedAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
 
     paymentMethod: {
       type: String,
@@ -124,6 +148,35 @@ const orderSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    cancellationRequest: {
+      status: {
+        type: String,
+        enum: ["NONE", "REQUESTED", "APPROVED", "REJECTED"],
+        default: "NONE",
+      },
+      reason: String,
+      requestedAt: Date,
+      resolvedAt: Date,
+    },
+    
+    returnRequest: {
+      status: {
+        type: String,
+        enum: ["NONE", "REQUESTED", "APPROVED", "REJECTED", "RECEIVED", "REFUNDED"],
+        default: "NONE",
+      },
+      reason: String,
+      requestedAt: Date,
+      resolvedAt: Date,
+    },
+    
+    inventoryRestoredAt: Date,
+    refundId: String,
+    refundStatus: {
+      type: String,
+      enum: ["NOT_REQUIRED", "PENDING", "SUCCEEDED", "FAILED"],
+      default: "NOT_REQUIRED",
+    },
 
     expectedDeliveryDate: Date,
 
@@ -133,10 +186,18 @@ const orderSchema = new mongoose.Schema(
 );
 
 orderSchema.pre("save", function (next) {
-  if (!this.orderNumber) {
-    this.orderNumber = `ORD-${Date.now()}`;
+  if (this.isNew && this.statusHistory.length === 0) {
+    this.statusHistory.push({
+      status: this.orderStatus,
+      changedAt: this.createdAt || new Date(),
+    });
+  } else if (this.isModified("orderStatus")) {
+    this.statusHistory.push({
+      status: this.orderStatus,
+      changedAt: new Date(),
+    });
   }
+
   next();
 });
-
 export const Order = mongoose.model("Order", orderSchema);
